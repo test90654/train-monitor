@@ -1,308 +1,347 @@
 import asyncio
 import os
-import requests
+import time
 import aiohttp
-from flask import Flask, render_template_string, request, jsonify
-import threading
+from aiohttp import web
 import discord
 from discord.ext import commands
+import requests
 
-# ==========================================
-# ⚙️ 設定・環境変数
-# ==========================================
-TOKEN = os.getenv("DISCORD_TOKEN")
+# ==================== 設定エリア ====================
+TOKEN = os.environ.get("DISCORD_TOKEN")
 
-# Flask Webサーバーの設定
-app = Flask(__name__)
+SOUND_NOBORI = "nobori.mp3"
+SOUND_KUDARI = "kudari.mp3"
 
-# 監視状態を管理するグローバル変数
-current_status = {
-    "line_name": "未選択",
-    "station_name": "未選択",
-    "line_code": None,
-    "station_code": None,
-    "direction": "1", # 1: 下り(DOWN), 2: 上り(UP)
-    "status_text": "待機中"
-}
+CHECK_INTERVAL = 5
+last_played = {"up": 0, "down": 0}
+TARGET_SECONDS_BEFORE = 180
 
-# どこトレの主要エンドポイント
-API_BASE = "https://doko-train.jp/json/trainstatus"
-DELAY_SECTION_URL = f"{API_BASE}/delay_section.json"
+# 初期状態（未選択）
+current_line_name = "未選択"
+current_line_code = None
+current_station_id = None
+current_station_name = "未選択"
+# ====================================================
 
-# サポートする路線・全駅のマスターデータ
+# 🎯 路線ごとの全駅データ（路線コード、駅ID、座標）
 ROUTES = {
-    "joban_rapid": {
-        "name": "常磐線（快速・中距離電車）",
-        "line_code": "joban",
+    "常磐線": {
+        "line_code": "9041",
         "stations": {
-            "iwaki": {"name": "いわき", "station_code": "iwaki"},
-            "yotsukura": {"name": "四ツ倉", "station_code": "yotsukura"},
-            "hisaanuma": {"name": "久ノ浜", "station_code": "hisaanuma"},
-            "suetsugi": {"name": "末続", "station_code": "suetsugi"},
-            "hirono": {"name": "広野", "station_code": "hirono"},
-            "kido": {"name": "木戸", "station_code": "kido"},
-            "tatsuta": {"name": "竜田", "station_code": "tatsuta"},
-            "tomioka": {"name": "富岡", "station_code": "tomioka"},
-            "yonomori": {"name": "夜ノ森", "station_code": "yonomori"},
-            "ono": {"name": "大野", "station_code": "ono"},
-            "futaba": {"name": "双葉", "station_code": "futaba"},
-            "namie": {"name": "浪江", "station_code": "namie"},
-            "momouchi": {"name": "桃内", "station_code": "momouchi"},
-            "odaka": {"name": "小高", "station_code": "odaka"},
-            "tokiwa": {"name": "磐城太田", "station_code": "iwaki_ota"},
-            "haraichi": {"name": "原ノ町", "station_code": "haramachi"},
-            "kashima": {"name": "鹿島", "station_code": "kashima"},
-            "nittaki": {"name": "日立木", "station_code": "nittaki"},
-            "soma": {"name": "相馬", "station_code": "soma"},
-            "omichi": {"name": "駒ヶ嶺", "station_code": "komagamine"},
-            "shinchi": {"name": "新地", "station_code": "shinchi"},
-            "sakamoto": {"name": "坂元", "station_code": "sakamoto"},
-            "yamashita": {"name": "山下", "station_code": "yamashita"},
-            "hamayoshida": {"name": "浜吉田", "station_code": "hamayoshida"},
-            "watari": {"name": "亘理", "station_code": "watari"},
-            "okuma": {"name": "逢隈", "station_code": "okuma"},
-            "iwanuma": {"name": "岩沼", "station_code": "iwanuma"},
-            "masuda": {"name": "館腰", "station_code": "tateakoshi"},
-            "natori": {"name": "名取", "station_code": "natori"},
-            "minamisenju": {"name": "南千住", "station_code": "minamisenju"},
-            "mita": {"name": "水戸", "station_code": "mito"},
-            "katsuta": {"name": "勝田", "station_code": "katsuta"},
-            "sawa": {"name": "佐和", "station_code": "sawa"},
-            "tokai": {"name": "東海", "station_code": "tokai"},
-            "omika": {"name": "大甕", "station_code": "omika"},
-        }
+            "友部": {"station_id": "2241211110", "lat": 36.3315, "lon": 140.4076},
+            "内原": {"station_id": "2241211130", "lat": 36.3680, "lon": 140.3540},
+            "赤塚": {"station_id": "2241211140", "lat": 36.3800, "lon": 140.4130},
+            "水戸": {"station_id": "2241211160", "lat": 36.3680, "lon": 140.4710},
+            "勝田": {"station_id": "2241211170", "lat": 36.3940, "lon": 140.5360},
+            "佐和": {"station_id": "2241211180", "lat": 36.4320, "lon": 140.5510},
+            "東海": {"station_id": "2241211190", "lat": 36.4690, "lon": 140.5650},
+            "大甕": {"station_id": "2241211200", "lat": 36.5170, "lon": 140.6120},
+            "小木津": {"station_id": "2241211210", "lat": 36.5640, "lon": 140.6430},
+            "日立": {"station_id": "2241211220", "lat": 36.5980, "lon": 140.6580},
+            "常陸多賀": {"station_id": "2241211230", "lat": 36.5450, "lon": 140.6310},
+            "十王": {"station_id": "2241211240", "lat": 36.6570, "lon": 140.7220},
+            "高萩": {"station_id": "2241211250", "lat": 36.7260, "lon": 140.7160},
+            "南中郷": {"station_id": "2241211260", "lat": 36.7620, "lon": 140.7170},
+            "磯原": {"station_id": "2241211270", "lat": 36.7900, "lon": 140.7410},
+            "大津港": {"station_id": "2241211280", "lat": 36.8370, "lon": 140.7710},
+            "勿来": {"station_id": "2241211290", "lat": 36.8770, "lon": 140.7930},
+            "植田": {"station_id": "2241211300", "lat": 36.9070, "lon": 140.8170},
+            "泉": {"station_id": "2241211310", "lat": 36.9380, "lon": 140.8650},
+            "湯本": {"station_id": "2241211320", "lat": 36.9850, "lon": 140.8410},
+            "内郷": {"station_id": "2241211330", "lat": 37.0220, "lon": 140.8800},
+            "いわき": {"station_id": "2241211340", "lat": 37.0580, "lon": 140.8910},
+        },
     },
-    "ome": {
-        "name": "青梅線",
-        "line_code": "ome",
+    "青梅線": {
+        "line_code": "145",
         "stations": {
-            "tachikawa": {"name": "立川", "station_code": "tachikawa"},
-            "nishi_tachikawa": {"name": "西立川", "station_code": "nishi_tachikawa"},
-            "higashi_nakagami": {"name": "東中神", "station_code": "higashi_nakagami"},
-            "nakagami": {"name": "中神", "station_code": "nakagami"},
-            "akishima": {"name": "昭島", "station_code": "akishima"},
-            "haishima": {"name": "拝島", "station_code": "haishima"},
-            "ushihama": {"name": "牛浜", "station_code": "ushihama"},
-            "fussa": {"name": "福生", "station_code": "fussa"},
-            "hamura": {"name": "羽村", "station_code": "hamura"},
-            "ozaku": {"name": "小作", "station_code": "ozaku"},
-            "kabe": {"name": "河辺", "station_code": "kabe"},
-            "higashi_ome": {"name": "東青梅", "station_code": "higashi_ome"},
-            "ome": {"name": "青梅", "station_code": "ome"},
-            "miyanohira": {"name": "宮ノ平", "station_code": "miyanohira"},
-            "hinatawada": {"name": "日向和田", "station_code": "hinatawada"},
-            "ishigami": {"name": "石神前", "station_code": "ishigami"},
-            "futamatao": {"name": "二俣尾", "station_code": "futamatao"},
-            "iku bata": {"name": "軍畑", "station_code": "ikubata"},
-            "sawai": {"name": "沢井", "station_code": "sawai"},
-            "mitake": {"name": "御嶽", "station_code": "mitake"},
-            "kawanori": {"name": "川井", "station_code": "kawanori"},
-            "kori": {"name": "古里", "station_code": "kori"},
-            "hatonosu": {"name": "鳩ノ巣", "station_code": "hatonosu"},
-            "shirosu": {"name": "白丸", "station_code": "shirosu"},
-            "okutama": {"name": "奥多摩", "station_code": "okutama"}
-        }
-    }
+            "青梅": {"station_id": "2241820120", "lat": 35.7890, "lon": 139.2520},
+            "宮ノ平": {"station_id": "2241820130", "lat": 35.7930, "lon": 139.2380},
+            "日向和田": {"station_id": "2241820140", "lat": 35.7950, "lon": 139.2250},
+            "石神前": {"station_id": "2241820150", "lat": 35.7960, "lon": 139.2150},
+            "二俣尾": {"station_id": "2241820160", "lat": 35.8020, "lon": 139.2050},
+            "軍畑": {"station_id": "2241820170", "lat": 35.8060, "lon": 139.1950},
+            "沢井": {"station_id": "2241820180", "lat": 35.8130, "lon": 139.1850},
+            "御嶽": {"station_id": "2241820190", "lat": 35.8180, "lon": 139.1720},
+            "川井": {"station_id": "2241820200", "lat": 35.8190, "lon": 139.1550},
+            "古里": {"station_id": "2241820210", "lat": 35.8170, "lon": 139.1400},
+            "鳩ノ巣": {"station_id": "2241820220", "lat": 35.8150, "lon": 139.1250},
+            "白丸": {"station_id": "2241820230", "lat": 35.8130, "lon": 139.1100},
+            "奥多摩": {"station_id": "2241820240", "lat": 35.8110, "lon": 139.0920},
+        },
+    },
 }
 
-# ==========================================
-# 🌐 どこトレ API ＆ 遅延情報取得
-# ==========================================
-def fetch_delay_sections():
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Mobile Safari/537.36",
-            "Referer": "https://doko-train.jp/sp/",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-        response = requests.get(DELAY_SECTION_URL, headers=headers, timeout=5)
-        if response.status_code == 200:
-            return response.json()
-    except Exception as e:
-        print(f"遅延情報取得エラー: {e}")
-    return None
-
-def fetch_train_status(line_code):
-    try:
-        url = f"{API_BASE}/{line_code}.json"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Mobile Safari/537.36",
-            "Referer": "https://doko-train.jp/sp/",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-        response = requests.get(url, headers=headers, timeout=5)
-        if response.status_code == 200:
-            return response.json()
-    except Exception as e:
-        print(f"列車データ取得エラー ({line_code}): {e}")
-    return None
-
-# ==========================================
-# 🤖 Discord Bot の設定
-# ==========================================
 intents = discord.Intents.default()
+intents.message_content = True
 intents.guilds = True
 intents.voice_states = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-AUDIO_DOWN = "kudari.mp3"
-AUDIO_UP = "nobori.mp3"
+headers = {
+    "accept": "application/json, text/javascript, */*; q=0.01",
+    "referer": "https://doko-train.jp/sp/",
+    "user-agent": "Mozilla/5.0 (Linux; Android 14; Pixel 9 Pro Fold) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Mobile Safari/537.36",
+    "x-requested-with": "XMLHttpRequest",
+}
 
-async def play_alert_sound(guild, direction):
-    target_channel_name = "接近無線"
-    target_vc = None
-
-    for vc in guild.voice_channels:
-        if vc.name == target_channel_name or target_channel_name in vc.name:
-            target_vc = vc
-            break
-    
-    if not target_vc and guild.voice_channels:
-        target_vc = guild.voice_channels[0]
-
-    if not target_vc:
-        return
-
-    audio_file = AUDIO_DOWN if direction == "1" else AUDIO_UP
-    if not os.path.exists(audio_file):
-        return
-
-    try:
-        if guild.voice_client:
-            if guild.voice_client.channel != target_vc:
-                await guild.voice_client.move_to(target_vc)
-            vc_client = guild.voice_client
-        else:
-            vc_client = await target_vc.connect()
-
-        if vc_client.is_playing():
-            vc_client.stop()
-
-        source = discord.FFmpegPCMAudio(audio_file)
-        vc_client.play(source)
-    except Exception as e:
-        print(f"音声再生エラー: {e}")
-
-# ==========================================
-# 🚂 列車監視バックグラウンドループ
-# ==========================================
 @bot.event
 async def on_ready():
     print(f"🤖 ログインしました: {bot.user.name}")
     bot.loop.create_task(train_monitor_loop())
+    bot.loop.create_task(start_web_server())
+
+# ==================== Webサーバー＆コントロール画面 ====================
+async def handle_index(request):
+    route_tabs = ""
+    station_buttons_container = ""
+
+    first_route = list(ROUTES.keys())[0]
+
+    for r_name, r_data in ROUTES.items():
+        active_class = "active" if r_name == first_route else ""
+        route_tabs += f'<button class="route-btn {active_class}" onclick="switchRoute(\'{r_name}\')">{r_name}</button>'
+
+        display_style = "block" if r_name == first_route else "none"
+        station_buttons_container += f'<div id="stations-{r_name}" class="station-list-group" style="display: {display_style};">'
+        for s_name in r_data["stations"].keys():
+            station_buttons_container += f'<button class="station-btn" onclick="setStation(\'{r_name}\', \'{s_name}\')">{s_name}</button>'
+        station_buttons_container += "</div>"
+
+    html = """
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>接近無線 - マルチ路線コントローラー</title>
+        <style>
+            body { font-family: sans-serif; text-align: center; padding: 20px; background: #111; color: #fff; }
+            .gps-btn { background: #ff4757; color: white; border: none; padding: 15px 30px; font-size: 18px; border-radius: 10px; cursor: pointer; width: 100%; max-width: 400px; margin-bottom: 20px; }
+            .gps-btn:active { background: #ff6b81; }
+            #status { margin: 15px 0; font-size: 16px; color: #00d2d3; font-weight: bold; }
+            .route-container { display: flex; justify-content: center; gap: 10px; margin-bottom: 15px; }
+            .route-btn { background: #353b48; color: white; border: none; padding: 10px 20px; font-size: 16px; border-radius: 8px; cursor: pointer; }
+            .route-btn.active { background: #e84118; font-weight: bold; }
+            .station-list-group { display: flex; flex-direction: column; gap: 8px; max-width: 400px; margin: 0 auto; }
+            .station-btn { background: #2f3640; color: white; border: none; padding: 14px; font-size: 16px; border-radius: 8px; cursor: pointer; text-align: left; padding-left: 20px; }
+            .station-btn:active { background: #718093; }
+            h2 { font-size: 18px; border-bottom: 1px solid #444; padding-bottom: 8px; margin-top: 20px; }
+        </style>
+    </head>
+    <body>
+        <h1>🚄 接近無線 コントローラー</h1>
+        
+        <button class="gps-btn" onclick="sendLocation()">📍 現在地GPSで自動同期</button>
+        <div id="status">現在の監視: __CURRENT_ROUTE__ / __CURRENT_STATION__駅</div>
+
+        <h2>🛤️ 路線選択</h2>
+        <div class="route-container">
+            __ROUTE_TABS_PLACEHOLDER__
+        </div>
+
+        <h2>📍 駅を選択（上り・下り順）</h2>
+        __STATION_CONTAINERS_PLACEHOLDER__
+
+        <script>
+            function switchRoute(routeName) {
+                document.querySelectorAll('.station-list-group').forEach(el => el.style.display = 'none');
+                document.getElementById('stations-' + routeName).style.display = 'flex';
+                
+                document.querySelectorAll('.route-btn').forEach(el => el.classList.remove('active'));
+                event.target.classList.add('active');
+            }
+
+            function sendLocation() {
+                const status = document.getElementById('status');
+                if (!navigator.geolocation) {
+                    status.innerText = "❌ お使いのブラウザは位置情報に対応していません";
+                    return;
+                }
+                status.innerText = "位置情報を取得中...";
+                navigator.geolocation.getCurrentPosition(async (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+
+                    try {
+                        const response = await fetch('/update_gps', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ type: 'gps', lat: lat, lon: lon })
+                        });
+                        const result = await response.json();
+                        status.innerText = `✅ 同期成功！ ${result.route} / ${result.station}駅`;
+                    } catch (e) {
+                        status.innerText = "❌ 送信失敗エラー";
+                    }
+                }, () => {
+                    status.innerText = "❌ 位置情報の取得が拒否されました";
+                }, { enableHighAccuracy: true, timeout: 10000 });
+            }
+
+            async function setStation(routeName, stationName) {
+                const status = document.getElementById('status');
+                status.innerText = `${routeName} ${stationName} に切り替え中...`;
+                try {
+                    const response = await fetch('/update_gps', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ type: 'manual', route: routeName, station: stationName })
+                    });
+                    const result = await response.json();
+                    status.innerText = `✅ 切替完了！ ${result.route} / ${result.station}駅`;
+                } catch (e) {
+                    status.innerText = "❌ 切替失敗エラー";
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """.replace("__CURRENT_ROUTE__", current_line_name) \
+       .replace("__CURRENT_STATION__", current_station_name) \
+       .replace("__ROUTE_TABS_PLACEHOLDER__", route_tabs) \
+       .replace("__STATION_CONTAINERS_PLACEHOLDER__", station_buttons_container)
+    return web.Response(text=html, content_type="text/html")
+
+async def handle_update_gps(request):
+    global current_line_name, current_line_code, current_station_id, current_station_name
+    try:
+        data = await request.json()
+        req_type = data.get("type")
+
+        if req_type == "gps":
+            user_lat = data.get("lat")
+            user_lon = data.get("lon")
+
+            closest_station = None
+            closest_route = None
+            min_distance = float("inf")
+
+            for r_name, r_data in ROUTES.items():
+                for s_name, s_info in r_data["stations"].items():
+                    dist = (s_info["lat"] - user_lat) ** 2 + (s_info["lon"] - user_lon) ** 2
+                    if dist < min_distance:
+                        min_distance = dist
+                        closest_route = r_name
+                        closest_station = (s_name, s_info["station_id"])
+
+            if closest_station:
+                current_line_name = closest_route
+                current_line_code = ROUTES[closest_route]["line_code"]
+                current_station_name, current_station_id = closest_station
+                print(f"📍 GPS同期完了 → [{current_line_name}] {current_station_name}駅に変更しました！")
+
+        elif req_type == "manual":
+            r_name = data.get("route")
+            s_name = data.get("station")
+            if r_name in ROUTES and s_name in ROUTES[r_name]["stations"]:
+                current_line_name = r_name
+                current_line_code = ROUTES[r_name]["line_code"]
+                current_station_name = s_name
+                current_station_id = ROUTES[r_name]["stations"][s_name]["station_id"]
+                print(f"👆 手動切替 → [{current_line_name}] {current_station_name}駅に変更しました！")
+
+        return web.json_response({"status": "success", "route": current_line_name, "station": current_station_name})
+    except Exception as e:
+        return web.json_response({"status": "error", "message": str(e)})
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_index)
+    app.router.add_post("/update_gps", handle_update_gps)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8080)
+    await site.start()
+    print("🌐 マルチ路線対応コントローラー用Webサーバーが起動しました (ポート: 8080)")
+
+# ==================== 音声＆列車監視ループ ====================
+async def play_audio_in_vc(audio_filename):
+    try:
+        target_channel = None
+        for guild in bot.guilds:
+            for channel in guild.voice_channels:
+                if "接近無線" in channel.name:
+                    target_channel = channel
+                    break
+            if target_channel:
+                break
+        
+        if not target_channel:
+            for guild in bot.guilds:
+                if guild.voice_channels:
+                    target_channel = guild.voice_channels[0]
+                    break
+
+        if not target_channel:
+            return
+
+        voice_client = discord.utils.get(bot.voice_clients, guild=target_channel.guild)
+        if not voice_client or not voice_client.is_connected():
+            voice_client = await target_channel.connect()
+
+        if voice_client and not voice_client.is_playing():
+            audio_path = os.path.join(os.path.dirname(__file__), audio_filename)
+            if os.path.exists(audio_path):
+                source = discord.FFmpegPCMAudio(audio_path)
+                voice_client.play(source)
+                print(f"🔊 接近無線を再生しました: {audio_filename}")
+    except Exception as e:
+        print(f"音声再生エラー: {e}")
 
 async def train_monitor_loop():
-    while True:
-        await asyncio.sleep(10)
-        line_code = current_status.get("line_code")
-        station_code = current_status.get("station_code")
+    global current_line_code, current_station_id, current_station_name, last_played
 
-        if not line_code or not station_code:
+    await bot.wait_until_ready()
+    print("🚂 列車監視ループを開始しました（※現在地未選択・待機中）。")
+
+    while not bot.is_closed():
+        await asyncio.sleep(CHECK_INTERVAL)
+
+        if not current_line_code or not current_station_id:
             continue
 
-        data = fetch_train_status(line_code)
-        delay_data = fetch_delay_sections()
-        
-        if not data:
-            continue
+        current_time = time.time()
 
-        trains = data.get("trainList", [])
-        for train in trains:
-            pass
+        for direction in ["up", "down"]:
+            url = f"https://doko-train.jp/json/departure_info/{current_line_code}/{current_station_id}_{direction}.json"
+            params = {"_": int(time.time() * 1000)}
 
+            try:
+                response = await asyncio.to_thread(requests.get, url, headers=headers, params=params, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    train_list = data.get("ST_DIAGRAM", [])
 
-# ==========================================
-# 🌐 Web コントローラー (Flask)
-# ==========================================
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ApproachRadioBot Controller</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; justify-content: center; }
-        .container { width: 100%; max-width: 400px; background: #1e1e1e; padding: 24px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-        h2 { font-size: 1.25rem; margin-top: 0; margin-bottom: 20px; color: #ffffff; border-bottom: 1px solid #333; padding-bottom: 10px; }
-        .status-box { background: #2d2d2d; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.5; }
-        .status-box span { color: #4CAF50; font-weight: bold; }
-        label { display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 6px; }
-        select { width: 100%; padding: 10px; background: #2d2d2d; color: #fff; border: 1px solid #444; border-radius: 6px; font-size: 1rem; margin-bottom: 16px; outline: none; }
-        select:focus { border-color: #4CAF50; }
-        button { width: 100%; padding: 12px; background: #4CAF50; color: white; border: none; border-radius: 6px; font-size: 1rem; font-weight: bold; cursor: pointer; transition: background 0.2s; }
-        button:hover { background: #43a047; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h2>🚂 接近無線モニター</h2>
-        <div class="status-box">
-            <div>路線: <span>{{ status.line_name }}</span></div>
-            <div>監視駅: <span>{{ status.station_name }}</span></div>
-        </div>
-        <form method="POST" action="/update">
-            <label>路線選択</label>
-            <select name="line_key" onchange="this.form.submit()">
-                {% for key, val in routes.items() %}
-                <option value="{{ key }}" {% if key == selected_line %}selected{% endif %}>{{ val.name }}</option>
-                {% endfor %}
-            </select>
-        </form>
-        <form method="POST" action="/set_station">
-            <input type="hidden" name="line_key" value="{{ selected_line }}">
-            <label>監視駅選択</label>
-            <select name="station_key">
-                {% for skey, sval in stations.items() %}
-                <option value="{{ skey }}">{{ sval.name }}</option>
-                {% endfor %}
-            </select>
-            <button type="submit">監視スタート</button>
-        </form>
-    </div>
-</body>
-</html>
-"""
+                    for train in train_list:
+                        train_id = train.get("TRAIN_ID")
+                        unit_info = train.get("UNIT_INFO")
+                        train_name = train.get("TRAIN_NNAME") or "普通/快速"
+                        std_tm = train.get("STD_TM")
 
-@app.route("/", methods=["GET"])
-def index():
-    selected_line = request.args.get("line_key", list(ROUTES.keys())[0])
-    stations = ROUTES[selected_line]["stations"]
-    return render_template_string(HTML_TEMPLATE, status=current_status, routes=ROUTES, selected_line=selected_line, stations=stations)
+                        if unit_info == "5" and std_tm:
+                            remaining_seconds = int(std_tm) - int(current_time)
 
-@app.route("/update", methods=["POST"])
-def update_line():
-    selected_line = request.form.get("line_key")
-    return f'<script>location.href="/?line_key={selected_line}";</script>'
+                            if 0 <= remaining_seconds <= TARGET_SECONDS_BEFORE:
+                                if remaining_seconds <= 60:
+                                    dynamic_cooldown = 8
+                                elif remaining_seconds <= 120:
+                                    dynamic_cooldown = 15
+                                else:
+                                    dynamic_cooldown = 25
 
-@app.route("/set_station", methods=["POST"])
-def set_station():
-    line_key = request.form.get("line_key")
-    station_key = request.form.get("station_key")
-    
-    if line_key in ROUTES and station_key in ROUTES[line_key]["stations"]:
-        route_info = ROUTES[line_key]
-        station_info = route_info["stations"][station_key]
-        
-        current_status["line_name"] = route_info["name"]
-        current_status["station_name"] = station_info["name"]
-        current_status["line_code"] = route_info["line_code"]
-        current_status["station_code"] = station_info["station_code"]
-        print(f"👆 手動切替 → [{route_info['name']}] {station_info['name']}駅に変更しました！")
-        
-    return f'<script>location.href="/?line_key={line_key}";</script>'
+                                print(f"🎯 【{direction.upper()}線 直前検知 @{current_line_name}/{current_station_name}】 列車: {train_id} ({train_name}) | 残り約 {remaining_seconds}秒")
 
-def run_flask():
-    app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
+                                if current_time - last_played[direction] >= dynamic_cooldown:
+                                    audio_file = SOUND_NOBORI if direction == "up" else SOUND_KUDARI
+                                    await play_audio_in_vc(audio_file)
+                                    last_played[direction] = current_time
+                                break
 
-# ==========================================
-# 🚀 起動処理
-# ==========================================
-if __name__ == "__main__":
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
+            except Exception as e:
+                print(f"API通信エラー ({direction}線): {e}")
 
-    if not TOKEN:
-        print("エラー: DISCORD_TOKEN 環境変数が設定されていません。")
-    else:
-        bot.run(TOKEN)
+bot.run(TOKEN)
