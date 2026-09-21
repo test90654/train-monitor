@@ -15,7 +15,6 @@ SOUND_KUDARI = "kudari.mp3"
 
 CHECK_INTERVAL = 5
 last_played = {"up": 0, "down": 0}
-TARGET_SECONDS_BEFORE = 180
 
 # 初期状態（未選択）
 current_line_name = "未選択"
@@ -24,51 +23,51 @@ current_station_id = None
 current_station_name = "未選択"
 # ====================================================
 
-# 🎯 路線ごとの全駅データ（路線コード、駅ID、座標）
+# 🎯 路線ごとの全駅データ（路線コード、駅ID、座標、および上り・下りの順序インデックス）
 ROUTES = {
     "常磐線": {
         "line_code": "9041",
         "stations": {
-            "友部": {"station_id": "2241211110", "lat": 36.3315, "lon": 140.4076},
-            "内原": {"station_id": "2241211130", "lat": 36.3680, "lon": 140.3540},
-            "赤塚": {"station_id": "2241211140", "lat": 36.3800, "lon": 140.4130},
-            "水戸": {"station_id": "2241211160", "lat": 36.3680, "lon": 140.4710},
-            "勝田": {"station_id": "2241211170", "lat": 36.3940, "lon": 140.5360},
-            "佐和": {"station_id": "2241211180", "lat": 36.4320, "lon": 140.5510},
-            "東海": {"station_id": "2241211190", "lat": 36.4690, "lon": 140.5650},
-            "大甕": {"station_id": "2241211200", "lat": 36.5170, "lon": 140.6120},
-            "小木津": {"station_id": "2241211210", "lat": 36.5640, "lon": 140.6430},
-            "日立": {"station_id": "2241211220", "lat": 36.5980, "lon": 140.6580},
-            "常陸多賀": {"station_id": "2241211230", "lat": 36.5450, "lon": 140.6310},
-            "十王": {"station_id": "2241211240", "lat": 36.6570, "lon": 140.7220},
-            "高萩": {"station_id": "2241211250", "lat": 36.7260, "lon": 140.7160},
-            "南中郷": {"station_id": "2241211260", "lat": 36.7620, "lon": 140.7170},
-            "磯原": {"station_id": "2241211270", "lat": 36.7900, "lon": 140.7410},
-            "大津港": {"station_id": "2241211280", "lat": 36.8370, "lon": 140.7710},
-            "勿来": {"station_id": "2241211290", "lat": 36.8770, "lon": 140.7930},
-            "植田": {"station_id": "2241211300", "lat": 36.9070, "lon": 140.8170},
-            "泉": {"station_id": "2241211310", "lat": 36.9380, "lon": 140.8650},
-            "湯本": {"station_id": "2241211320", "lat": 36.9850, "lon": 140.8410},
-            "内郷": {"station_id": "2241211330", "lat": 37.0220, "lon": 140.8800},
-            "いわき": {"station_id": "2241211340", "lat": 37.0580, "lon": 140.8910},
+            "友部": {"station_id": "2241211110", "lat": 36.3315, "lon": 140.4076, "index": 1},
+            "内原": {"station_id": "2241211130", "lat": 36.3680, "lon": 140.3540, "index": 2},
+            "赤塚": {"station_id": "2241211140", "lat": 36.3800, "lon": 140.4130, "index": 3},
+            "水戸": {"station_id": "2241211160", "lat": 36.3680, "lon": 140.4710, "index": 4},
+            "勝田": {"station_id": "2241211170", "lat": 36.3940, "lon": 140.5360, "index": 5},
+            "佐和": {"station_id": "2241211180", "lat": 36.4320, "lon": 140.5510, "index": 6},
+            "東海": {"station_id": "2241211190", "lat": 36.4690, "lon": 140.5650, "index": 7},
+            "大甕": {"station_id": "2241211200", "lat": 36.5170, "lon": 140.6120, "index": 8},
+            "小木津": {"station_id": "2241211210", "lat": 36.5640, "lon": 140.6430, "index": 9},
+            "日立": {"station_id": "2241211220", "lat": 36.5980, "lon": 140.6580, "index": 10},
+            "常陸多賀": {"station_id": "2241211230", "lat": 36.5450, "lon": 140.6310, "index": 11},
+            "十王": {"station_id": "2241211240", "lat": 36.6570, "lon": 140.7220, "index": 12},
+            "高萩": {"station_id": "2241211250", "lat": 36.7260, "lon": 140.7160, "index": 13},
+            "南中郷": {"station_id": "2241211260", "lat": 36.7620, "lon": 140.7170, "index": 14},
+            "磯原": {"station_id": "2241211270", "lat": 36.7900, "lon": 140.7410, "index": 15},
+            "大津港": {"station_id": "2241211280", "lat": 36.8370, "lon": 140.7710, "index": 16},
+            "勿来": {"station_id": "2241211290", "lat": 36.8770, "lon": 140.7930, "index": 17},
+            "植田": {"station_id": "2241211300", "lat": 36.9070, "lon": 140.8170, "index": 18},
+            "泉": {"station_id": "2241211310", "lat": 36.9380, "lon": 140.8650, "index": 19},
+            "湯本": {"station_id": "2241211320", "lat": 36.9850, "lon": 140.8410, "index": 20},
+            "内郷": {"station_id": "2241211330", "lat": 37.0220, "lon": 140.8800, "index": 21},
+            "いわき": {"station_id": "2241211340", "lat": 37.0580, "lon": 140.8910, "index": 22},
         },
     },
     "青梅線": {
         "line_code": "145",
         "stations": {
-            "青梅": {"station_id": "2241820120", "lat": 35.7890, "lon": 139.2520},
-            "宮ノ平": {"station_id": "2241820130", "lat": 35.7930, "lon": 139.2380},
-            "日向和田": {"station_id": "2241820140", "lat": 35.7950, "lon": 139.2250},
-            "石神前": {"station_id": "2241820150", "lat": 35.7960, "lon": 139.2150},
-            "二俣尾": {"station_id": "2241820160", "lat": 35.8020, "lon": 139.2050},
-            "軍畑": {"station_id": "2241820170", "lat": 35.8060, "lon": 139.1950},
-            "沢井": {"station_id": "2241820180", "lat": 35.8130, "lon": 139.1850},
-            "御嶽": {"station_id": "2241820190", "lat": 35.8180, "lon": 139.1720},
-            "川井": {"station_id": "2241820200", "lat": 35.8190, "lon": 139.1550},
-            "古里": {"station_id": "2241820210", "lat": 35.8170, "lon": 139.1400},
-            "鳩ノ巣": {"station_id": "2241820220", "lat": 35.8150, "lon": 139.1250},
-            "白丸": {"station_id": "2241820230", "lat": 35.8130, "lon": 139.1100},
-            "奥多摩": {"station_id": "2241820240", "lat": 35.8110, "lon": 139.0920},
+            "青梅": {"station_id": "2241820120", "lat": 35.7890, "lon": 139.2520, "index": 1},
+            "宮ノ平": {"station_id": "2241820130", "lat": 35.7930, "lon": 139.2380, "index": 2},
+            "日向和田": {"station_id": "2241820140", "lat": 35.7950, "lon": 139.2250, "index": 3},
+            "石神前": {"station_id": "2241820150", "lat": 35.7960, "lon": 139.2150, "index": 4},
+            "二俣尾": {"station_id": "2241820160", "lat": 35.8020, "lon": 139.2050, "index": 5},
+            "軍畑": {"station_id": "2241820170", "lat": 35.8060, "lon": 139.1950, "index": 6},
+            "沢井": {"station_id": "2241820180", "lat": 35.8130, "lon": 139.1850, "index": 7},
+            "御嶽": {"station_id": "2241820190", "lat": 35.8180, "lon": 139.1720, "index": 8},
+            "川井": {"station_id": "2241820200", "lat": 35.8190, "lon": 139.1550, "index": 9},
+            "古里": {"station_id": "2241820210", "lat": 35.8170, "lon": 139.1400, "index": 10},
+            "鳩ノ巣": {"station_id": "2241820220", "lat": 35.8150, "lon": 139.1250, "index": 11},
+            "白丸": {"station_id": "2241820230", "lat": 35.8130, "lon": 139.1100, "index": 12},
+            "奥多摩": {"station_id": "2241820240", "lat": 35.8110, "lon": 139.0920, "index": 13},
         },
     },
 }
@@ -286,13 +285,6 @@ async def play_audio_in_vc(audio_filename):
         if voice_client and not voice_client.is_playing():
             audio_path = os.path.join(os.path.dirname(__file__), audio_filename)
             if os.path.exists(audio_path):
-                # PyNaClのインポートチェック
-                try:
-                    import nacl
-                except ImportError:
-                    print("⚠️ 音声再生エラー: PyNaClライブラリがインストールされていません。")
-                    return
-
                 source = discord.FFmpegPCMAudio(audio_path)
                 voice_client.play(source)
                 print(f"🔊 接近無線を再生しました: {audio_filename}")
@@ -303,7 +295,7 @@ async def train_monitor_loop():
     global current_line_code, current_station_id, current_station_name, last_played
 
     await bot.wait_until_ready()
-    print("🚂 列車監視ループを開始しました（幽霊列車完全排除・特急遅延対応版）。")
+    print("🚂 列車監視ループを開始しました（リアルタイム位置・POS_STATION直接監視版）。")
 
     while not bot.is_closed():
         await asyncio.sleep(CHECK_INTERVAL)
@@ -313,73 +305,59 @@ async def train_monitor_loop():
             continue
 
         current_time = time.time()
+        line_status_url = f"https://doko-train.jp/json/trainstatus/{current_line_code}.json"
+        params = {"_": int(current_time * 1000)}
 
-        for direction in ["up", "down"]:
-            line_status_url = f"https://doko-train.jp/json/trainstatus/{current_line_code}.json"
-            diag_url = f"https://doko-train.jp/json/departure_info/{current_line_code}/{current_station_id}_{direction}.json"
-            
-            params = {"_": int(current_time * 1000)}
+        try:
+            line_res = await asyncio.to_thread(requests.get, line_status_url, headers=headers, params=params, timeout=10)
+            if line_res.status_code == 200:
+                line_data = line_res.json()
+                raw_train_status = line_data.get("LINE_STATUS", {}).get("TRAIN_STATUS", {})
 
-            try:
-                # 1. 路線全体の列車ステータス（今実際に走っている列車リスト）を取得
-                line_res = await asyncio.to_thread(requests.get, line_status_url, headers=headers, params=params, timeout=10)
-                active_train_ids = set()
-                train_details = {}
+                # 現在選ばれている駅のインデックスとIDを取得
+                current_route_data = None
+                for r_name, r_data in ROUTES.items():
+                    if r_data["line_code"] == current_line_code:
+                        current_route_data = r_data
+                        break
                 
-                if line_res.status_code == 200:
-                    raw_train_status = line_res.json().get("LINE_STATUS", {}).get("TRAIN_STATUS", {})
-                    for key, info in raw_train_status.items():
-                        train_id_prefix = key.split(":")[0] # 例: "25M", "27M"
-                        active_train_ids.add(train_id_prefix)
-                        train_details[train_id_prefix] = info
+                if not current_route_data:
+                    continue
 
-                # 2. 駅別ダイアグラムを取得
-                diag_res = await asyncio.to_thread(requests.get, diag_url, headers=headers, params=params, timeout=10)
-                if diag_res.status_code == 200:
-                    diag_data = diag_res.json()
-                    train_list = diag_data.get("ST_DIAGRAM", [])
+                target_station_index = None
+                for s_name, s_info in current_route_data["stations"].items():
+                    if s_info["station_id"] == current_station_id:
+                        target_station_index = s_info["index"]
+                        break
 
-                    for train in train_list:
-                        train_id = train.get("TRAIN_ID")
-                        unit_info = train.get("UNIT_INFO")
-                        std_tm = train.get("STD_TM")
+                for key, info in raw_train_status.items():
+                    train_id = key.split(":")[0]
+                    train_nname = info.get("TRAIN_NNAME", "")
+                    train_name = f"特急「{train_nname}」" if train_nname else "普通/快速"
+                    latency = info.get("LATENCY", 0)
+                    bound = str(info.get("BOUND", "1")) # 1:下り, 2:上り (路線により異なるが基本の判定用)
 
-                        # 🛑 【重要】路線全体データ（TRAIN_STATUS）に今現在存在しない列車（過去のキャッシュ等）は完全に無視する！
-                        if train_id not in active_train_ids:
-                            continue
+                    pos_station = str(info.get("POS_STATION", "0"))
+                    cur_station = str(info.get("CUR_STATION", "0"))
 
-                        # 特急名と遅延の紐付け
-                        train_name = "普通/快速"
-                        latency = 0
-                        if train_id in train_details:
-                            info = train_details[train_id]
-                            train_nname = info.get("TRAIN_NNAME")
-                            if train_nname:
-                                train_name = f"特急「{train_nname}」"
-                            latency = info.get("LATENCY", 0)
+                    # 🎯 判定ロジック：
+                    # 列車が現在いる駅（CUR_STATION）または直前の駅（POS_STATION）が、
+                    # ユーザーが選択している駅（current_station_id）に一致した瞬間を「接近・到着」とみなす！
+                    if cur_station == current_station_id or pos_station == current_station_id:
+                        latency_str = f" 【遅延(LATENCY): {latency}分】" if latency and int(latency) > 0 else ""
+                        
+                        # 進行方向（BOUND）に応じて上り・下りを決定（一般的なJR東日本のBOUND割当に準拠、必要に応じ調整可能）
+                        direction = "down" if bound == "1" else "up"
 
-                        # unit_info == "5"（接近フラグ）かつ実在する列車のみ検知
-                        if unit_info == "5" and std_tm:
-                            remaining_seconds = int(std_tm) - int(current_time)
-                            latency_str = f" 【遅延指標(LATENCY): {latency}】" if latency and int(latency) > 0 else ""
+                        print(f"🎯 【{direction.upper()}線 直撃検知 @{current_line_name}/{current_station_name}】 列車: {train_id} ({train_name}){latency_str} | CUR:{cur_station} POS:{pos_station}")
 
-                            if 0 <= remaining_seconds <= TARGET_SECONDS_BEFORE:
-                                if remaining_seconds <= 60:
-                                    dynamic_cooldown = 8
-                                elif remaining_seconds <= 120:
-                                    dynamic_cooldown = 15
-                                else:
-                                    dynamic_cooldown = 25
+                        # クーoldown (20秒以内に同じ方向で連続再生しない)
+                        if current_time - last_played[direction] >= 20:
+                            audio_file = SOUND_NOBORI if direction == "up" else SOUND_KUDARI
+                            await play_audio_in_vc(audio_file)
+                            last_played[direction] = current_time
 
-                                print(f"🎯 【{direction.upper()}線 接近検知 @{current_line_name}/{current_station_name}】 列車: {train_id} ({train_name}){latency_str} | 残り約 {remaining_seconds}秒")
-
-                                if current_time - last_played[direction] >= dynamic_cooldown:
-                                    audio_file = SOUND_NOBORI if direction == "up" else SOUND_KUDARI
-                                    await play_audio_in_vc(audio_file)
-                                    last_played[direction] = current_time
-                                break
-
-            except Exception as e:
-                print(f"API通信エラー ({direction}線): {e}")
+        except Exception as e:
+            print(f"API通信エラー: {e}")
 
 bot.run(TOKEN)
