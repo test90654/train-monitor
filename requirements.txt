@@ -2,3 +2,4 @@ discord.py
 requests
 aiohttp
 PyNaCl
+Flask
