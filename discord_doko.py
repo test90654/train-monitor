@@ -296,7 +296,7 @@ async def train_monitor_loop():
     global current_line_code, current_station_id, current_station_name, last_played
 
     await bot.wait_until_ready()
-    print("🚂 列車監視ループを開始しました（特急・遅延完全対応版）。")
+    print("🚂 列車監視ループを開始しました（実データ最適化版・特急・遅延対応）。")
 
     while not bot.is_closed():
         await asyncio.sleep(CHECK_INTERVAL)
@@ -311,32 +311,30 @@ async def train_monitor_loop():
             line_status_url = f"https://doko-train.jp/json/trainstatus/{current_line_code}.json"
             diag_url = f"https://doko-train.jp/json/departure_info/{current_line_code}/{current_station_id}_{direction}.json"
             
-            params = {"_": int(time.time() * 1000)}
+            params = {"_": int(current_time * 1000)}
 
             try:
-                # 路線全体の列車ステータス（特急名や遅延データ）を取得してマッピング
+                # 1. 路線全体の列車ステータス（特急名・遅延 LATENCY）を取得
                 line_res = await asyncio.to_thread(requests.get, line_status_url, headers=headers, params=params, timeout=10)
                 train_details = {}
                 if line_res.status_code == 200:
-                    line_data = line_res.json()
-                    raw_train_status = line_data.get("LINE_STATUS", {}).get("TRAIN_STATUS", {})
-                    # キー（例: "25M:2241601060-2241211340"）の先頭（"25M"）をキーにして引きやすくする
+                    raw_train_status = line_res.json().get("LINE_STATUS", {}).get("TRAIN_STATUS", {})
                     for key, info in raw_train_status.items():
                         train_id_prefix = key.split(":")[0]
                         train_details[train_id_prefix] = info
 
-                # 駅別ダイアグラムを取得して接近判定
+                # 2. 駅別ダイアグラムを取得
                 diag_res = await asyncio.to_thread(requests.get, diag_url, headers=headers, params=params, timeout=10)
                 if diag_res.status_code == 200:
                     diag_data = diag_res.json()
                     train_list = diag_data.get("ST_DIAGRAM", [])
 
                     for train in train_list:
-                        train_id = train.get("TRAIN_ID") # 例: "25M", "458M"
-                        unit_info = train.get("UNIT_INFO") # "5" や "10" など
+                        train_id = train.get("TRAIN_ID")
+                        unit_info = train.get("UNIT_INFO")
                         std_tm = train.get("STD_TM")
 
-                        # 特急名や遅延情報の取得
+                        # 特急名と遅延の紐付け
                         train_name = "普通/快速"
                         latency = 0
                         if train_id in train_details:
@@ -346,12 +344,13 @@ async def train_monitor_loop():
                                 train_name = f"特急「{train_nname}」"
                             latency = info.get("LATENCY", 0)
 
-                        # unit_info が "5"（接近）または "10"（接近・到着等）のいずれか、かつ時刻が存在する場合に検知
-                        if unit_info in ["5", "10"] and std_tm:
+                        # 🔍 実データ検証に基づく判定ロジック
+                        # UNIT_INFO == "5" はどこトレで「接近中」のフラグ
+                        if unit_info == "5" and std_tm:
                             remaining_seconds = int(std_tm) - int(current_time)
+                            latency_str = f" 【遅延指標(LATENCY): {latency}】" if latency and int(latency) > 0 else ""
 
-                            latency_str = f" 【遅延指標: {latency}】" if latency and int(latency) > 0 else ""
-
+                            # 念のため 0秒〜ターゲット秒数（180秒前など）の範囲に入っているかチェック
                             if 0 <= remaining_seconds <= TARGET_SECONDS_BEFORE:
                                 if remaining_seconds <= 60:
                                     dynamic_cooldown = 8
@@ -360,7 +359,7 @@ async def train_monitor_loop():
                                 else:
                                     dynamic_cooldown = 25
 
-                                print(f"🎯 【{direction.upper()}線 直前検知 @{current_line_name}/{current_station_name}】 列車: {train_id} ({train_name}){latency_str} | 残り約 {remaining_seconds}秒")
+                                print(f"🎯 【{direction.upper()}線 接近検知 @{current_line_name}/{current_station_name}】 列車: {train_id} ({train_name}){latency_str} | 残り約 {remaining_seconds}秒")
 
                                 if current_time - last_played[direction] >= dynamic_cooldown:
                                     audio_file = SOUND_NOBORI if direction == "up" else SOUND_KUDARI
