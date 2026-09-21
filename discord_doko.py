@@ -333,12 +333,15 @@ async def train_monitor_loop():
 
                     if cur_station == current_station_id or pos_station == current_station_id:
                         latency_str = f" 【遅延: {latency}分】" if latency and int(latency) > 0 else ""
-                        direction = "down" if bound == "1" else "up"
+                        
+                        # 🔴 上下線の判定を反転（BOUND "2" を下り、"1" を上りに修正）
+                        direction = "down" if bound == "2" else "up"
 
-                        sys.stderr.write(f"🎯 [{direction.upper()}線検知 @{current_line_name}/{current_station_name}] 列車: {train_id} ({train_name}){latency_str}\n")
+                        sys.stderr.write(f"🎯 [{direction.upper()}線検知 @{current_line_name}/{current_station_name}] 列車: {train_id} ({train_name}){latency_str} (BOUND:{bound})\n")
                         sys.stderr.flush()
 
                         if current_time - last_played[direction] >= 20:
+                            # upならnobori.mp3、downならkudari.mp3を再生
                             audio_file = SOUND_NOBORI if direction == "up" else SOUND_KUDARI
                             await play_audio_in_vc(audio_file)
                             last_played[direction] = current_time
