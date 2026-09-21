@@ -296,7 +296,7 @@ async def train_monitor_loop():
     global current_line_code, current_station_id, current_station_name, last_played
 
     await bot.wait_until_ready()
-    print("🚂 列車監視ループを開始しました（特急・遅延情報対応版）。")
+    print("🚂 列車監視ループを開始しました（特急・遅延完全対応版）。")
 
     while not bot.is_closed():
         await asyncio.sleep(CHECK_INTERVAL)
@@ -307,23 +307,23 @@ async def train_monitor_loop():
 
         current_time = time.time()
 
-        # 1. 従来の駅別ダイアグラム（接近秒数計算用）と、2. 路線ごとの列車ステータス（特急・遅延用）を並行して確認
-        for direction, bound_str in [("up", "2"), ("down", "1")]:
-            # 特急・遅延情報を得るための路線JSON (`[line_code].json`)
+        for direction in ["up", "down"]:
             line_status_url = f"https://doko-train.jp/json/trainstatus/{current_line_code}.json"
-            # 接近秒数を得るための駅別ダイアグラム
             diag_url = f"https://doko-train.jp/json/departure_info/{current_line_code}/{current_station_id}_{direction}.json"
             
             params = {"_": int(time.time() * 1000)}
 
             try:
-                # 路線全体の列車ステータス（特急名や遅延データ）を取得
+                # 路線全体の列車ステータス（特急名や遅延データ）を取得してマッピング
                 line_res = await asyncio.to_thread(requests.get, line_status_url, headers=headers, params=params, timeout=10)
                 train_details = {}
                 if line_res.status_code == 200:
                     line_data = line_res.json()
-                    # LINE_STATUS -> TRAIN_STATUS から各列車の詳細を取得
-                    train_details = line_data.get("LINE_STATUS", {}).get("TRAIN_STATUS", {})
+                    raw_train_status = line_data.get("LINE_STATUS", {}).get("TRAIN_STATUS", {})
+                    # キー（例: "25M:2241601060-2241211340"）の先頭（"25M"）をキーにして引きやすくする
+                    for key, info in raw_train_status.items():
+                        train_id_prefix = key.split(":")[0]
+                        train_details[train_id_prefix] = info
 
                 # 駅別ダイアグラムを取得して接近判定
                 diag_res = await asyncio.to_thread(requests.get, diag_url, headers=headers, params=params, timeout=10)
@@ -332,26 +332,25 @@ async def train_monitor_loop():
                     train_list = diag_data.get("ST_DIAGRAM", [])
 
                     for train in train_list:
-                        train_id = train.get("TRAIN_ID") # 例: "73M" など
-                        unit_info = train.get("UNIT_INFO")
+                        train_id = train.get("TRAIN_ID") # 例: "25M", "458M"
+                        unit_info = train.get("UNIT_INFO") # "5" や "10" など
                         std_tm = train.get("STD_TM")
 
-                        # 路線データ側から該当する列車の詳細（特急名や遅延）をマッチングして探す
+                        # 特急名や遅延情報の取得
                         train_name = "普通/快速"
                         latency = 0
-                        for key, info in train_details.items():
-                            # TRAIN_LCLID またはキー名に train_id が含まれているかで照合
-                            if train_id and train_id.split(":")[0] in key:
-                                train_nname = info.get("TRAIN_NNAME")
-                                if train_nname:
-                                    train_name = f"特急「{train_nname}」"
-                                latency = info.get("LATENCY", 0)
-                                break
+                        if train_id in train_details:
+                            info = train_details[train_id]
+                            train_nname = info.get("TRAIN_NNAME")
+                            if train_nname:
+                                train_name = f"特急「{train_nname}」"
+                            latency = info.get("LATENCY", 0)
 
-                        if unit_info == "5" and std_tm:
+                        # unit_info が "5"（接近）または "10"（接近・到着等）のいずれか、かつ時刻が存在する場合に検知
+                        if unit_info in ["5", "10"] and std_tm:
                             remaining_seconds = int(std_tm) - int(current_time)
 
-                            latency_str = f" 【遅延指標: {latency}】" if latency > 0 else ""
+                            latency_str = f" 【遅延指標: {latency}】" if latency and int(latency) > 0 else ""
 
                             if 0 <= remaining_seconds <= TARGET_SECONDS_BEFORE:
                                 if remaining_seconds <= 60:
