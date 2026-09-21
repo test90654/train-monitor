@@ -286,6 +286,13 @@ async def play_audio_in_vc(audio_filename):
         if voice_client and not voice_client.is_playing():
             audio_path = os.path.join(os.path.dirname(__file__), audio_filename)
             if os.path.exists(audio_path):
+                # PyNaClのインポートチェック
+                try:
+                    import nacl
+                except ImportError:
+                    print("⚠️ 音声再生エラー: PyNaClライブラリがインストールされていません。")
+                    return
+
                 source = discord.FFmpegPCMAudio(audio_path)
                 voice_client.play(source)
                 print(f"🔊 接近無線を再生しました: {audio_filename}")
@@ -296,7 +303,7 @@ async def train_monitor_loop():
     global current_line_code, current_station_id, current_station_name, last_played
 
     await bot.wait_until_ready()
-    print("🚂 列車監視ループを開始しました（実データ最適化版・特急・遅延対応）。")
+    print("🚂 列車監視ループを開始しました（幽霊列車完全排除・特急遅延対応版）。")
 
     while not bot.is_closed():
         await asyncio.sleep(CHECK_INTERVAL)
@@ -314,13 +321,16 @@ async def train_monitor_loop():
             params = {"_": int(current_time * 1000)}
 
             try:
-                # 1. 路線全体の列車ステータス（特急名・遅延 LATENCY）を取得
+                # 1. 路線全体の列車ステータス（今実際に走っている列車リスト）を取得
                 line_res = await asyncio.to_thread(requests.get, line_status_url, headers=headers, params=params, timeout=10)
+                active_train_ids = set()
                 train_details = {}
+                
                 if line_res.status_code == 200:
                     raw_train_status = line_res.json().get("LINE_STATUS", {}).get("TRAIN_STATUS", {})
                     for key, info in raw_train_status.items():
-                        train_id_prefix = key.split(":")[0]
+                        train_id_prefix = key.split(":")[0] # 例: "25M", "27M"
+                        active_train_ids.add(train_id_prefix)
                         train_details[train_id_prefix] = info
 
                 # 2. 駅別ダイアグラムを取得
@@ -334,6 +344,10 @@ async def train_monitor_loop():
                         unit_info = train.get("UNIT_INFO")
                         std_tm = train.get("STD_TM")
 
+                        # 🛑 【重要】路線全体データ（TRAIN_STATUS）に今現在存在しない列車（過去のキャッシュ等）は完全に無視する！
+                        if train_id not in active_train_ids:
+                            continue
+
                         # 特急名と遅延の紐付け
                         train_name = "普通/快速"
                         latency = 0
@@ -344,13 +358,11 @@ async def train_monitor_loop():
                                 train_name = f"特急「{train_nname}」"
                             latency = info.get("LATENCY", 0)
 
-                        # 🔍 実データ検証に基づく判定ロジック
-                        # UNIT_INFO == "5" はどこトレで「接近中」のフラグ
+                        # unit_info == "5"（接近フラグ）かつ実在する列車のみ検知
                         if unit_info == "5" and std_tm:
                             remaining_seconds = int(std_tm) - int(current_time)
                             latency_str = f" 【遅延指標(LATENCY): {latency}】" if latency and int(latency) > 0 else ""
 
-                            # 念のため 0秒〜ターゲット秒数（180秒前など）の範囲に入っているかチェック
                             if 0 <= remaining_seconds <= TARGET_SECONDS_BEFORE:
                                 if remaining_seconds <= 60:
                                     dynamic_cooldown = 8
