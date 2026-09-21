@@ -1,5 +1,6 @@
 import asyncio
 import os
+import sys
 import time
 import aiohttp
 from aiohttp import web
@@ -88,7 +89,8 @@ headers = {
 
 @bot.event
 async def on_ready():
-    print(f"🤖 ログインしました: {bot.user.name}")
+    sys.stderr.write(f"🤖 [DEBUG] on_ready発火: ログインユーザー = {bot.user.name}\n")
+    sys.stderr.flush()
     bot.loop.create_task(train_monitor_loop())
     bot.loop.create_task(start_web_server())
 
@@ -230,7 +232,8 @@ async def handle_update_gps(request):
                 current_line_name = closest_route
                 current_line_code = ROUTES[closest_route]["line_code"]
                 current_station_name, current_station_id = closest_station
-                print(f"📍 GPS同期完了 → [{current_line_name}] {current_station_name}駅に変更しました！")
+                sys.stderr.write(f"📍 [GPS同期完了] [{current_line_name}] {current_station_name}駅\n")
+                sys.stderr.flush()
 
         elif req_type == "manual":
             r_name = data.get("route")
@@ -240,7 +243,8 @@ async def handle_update_gps(request):
                 current_line_code = ROUTES[r_name]["line_code"]
                 current_station_name = s_name
                 current_station_id = ROUTES[r_name]["stations"][s_name]["station_id"]
-                print(f"👆 手動切替 → [{current_line_name}] {current_station_name}駅に変更しました！")
+                sys.stderr.write(f"👆 [手動切替] [{current_line_name}] {current_station_name}駅\n")
+                sys.stderr.flush()
 
         return web.json_response({"status": "success", "route": current_line_name, "station": current_station_name})
     except Exception as e:
@@ -255,7 +259,8 @@ async def start_web_server():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", 8080)
     await site.start()
-    print("🌐 マルチ路線対応コントローラー用Webサーバーが起動しました (ポート: 8080)")
+    sys.stderr.write("🌐 [WEB] コントローラー用Webサーバーが起動しました (ポート: 8080)\n")
+    sys.stderr.flush()
 
 # ==================== 音声＆列車監視ループ ====================
 async def play_audio_in_vc(audio_filename):
@@ -287,15 +292,18 @@ async def play_audio_in_vc(audio_filename):
             if os.path.exists(audio_path):
                 source = discord.FFmpegPCMAudio(audio_path)
                 voice_client.play(source)
-                print(f"🔊 接近無線を再生しました: {audio_filename}")
+                sys.stderr.write(f"🔊 [音声再生] {audio_filename}\n")
+                sys.stderr.flush()
     except Exception as e:
-        print(f"音声再生エラー: {e}")
+        sys.stderr.write(f"音声再生エラー: {e}\n")
+        sys.stderr.flush()
 
 async def train_monitor_loop():
     global current_line_code, current_station_id, current_station_name, last_played
 
     await bot.wait_until_ready()
-    print("🚂 列車監視ループを開始しました（リアルタイム位置・POS_STATION直接監視版）。")
+    sys.stderr.write("🚂 [監視ループ] 列車監視ループを開始しました。\n")
+    sys.stderr.flush()
 
     while not bot.is_closed():
         await asyncio.sleep(CHECK_INTERVAL)
@@ -324,10 +332,11 @@ async def train_monitor_loop():
                     cur_station = str(info.get("CUR_STATION", "0"))
 
                     if cur_station == current_station_id or pos_station == current_station_id:
-                        latency_str = f" 【遅延(LATENCY): {latency}分】" if latency and int(latency) > 0 else ""
+                        latency_str = f" 【遅延: {latency}分】" if latency and int(latency) > 0 else ""
                         direction = "down" if bound == "1" else "up"
 
-                        print(f"🎯 【{direction.upper()}線 直撃検知 @{current_line_name}/{current_station_name}】 列車: {train_id} ({train_name}){latency_str} | CUR:{cur_station} POS:{pos_station}")
+                        sys.stderr.write(f"🎯 [{direction.upper()}線検知 @{current_line_name}/{current_station_name}] 列車: {train_id} ({train_name}){latency_str}\n")
+                        sys.stderr.flush()
 
                         if current_time - last_played[direction] >= 20:
                             audio_file = SOUND_NOBORI if direction == "up" else SOUND_KUDARI
@@ -335,6 +344,9 @@ async def train_monitor_loop():
                             last_played[direction] = current_time
 
         except Exception as e:
-            print(f"API通信エラー: {e}")
+            sys.stderr.write(f"API通信エラー: {e}\n")
+            sys.stderr.flush()
 
+sys.stderr.write("🚀 [起動] ボットの起動処理を開始します...\n")
+sys.stderr.flush()
 bot.run(TOKEN)
