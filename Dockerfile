@@ -1,1 +1,1 @@
-FROM python:3.10-slim`nWORKDIR /app`nRUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*`nCOPY requirements.txt .`nRUN pip install --no-cache-dir -r requirements.txt`nCOPY . .`nCMD ["python", "server_doko.py"]
+FROM python:3.10-slim`nWORKDIR /app`nRUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*`nCOPY requirements.txt .`nRUN pip install --no-cache-dir -r requirements.txt`nCOPY . .`nCMD ["python", "discord_doko.py"]
