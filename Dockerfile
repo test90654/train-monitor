@@ -11,4 +11,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+end
+
 CMD ["python", "discord_doko.py"]
